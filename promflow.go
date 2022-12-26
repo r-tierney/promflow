@@ -9,7 +9,6 @@ import (
     "math"
     "time"
     "encoding/binary"
-    "golang.org/x/exp/slices"
     "github.com/google/gopacket"
     "github.com/google/gopacket/layers"
     "github.com/google/gopacket/pcap"
@@ -36,10 +35,10 @@ var transmitByteCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 }, []string{"ip"})
 
 
-// Get all IPs for CIDR subnets 
-func get_subnet_hosts(subnets string) []string {
-    // 192.168.0.0/24,192.168.1.0/24 -> ['192.168.0.0', ..., '192.168.0.255', '192.168.1.0', ..., '192.168.1.255']
-    var ips []string
+// Return a set of all IPs in a CIDR network
+func get_subnet_hosts(subnets string) map[string]struct{} {
+    // 192.168.0.0/24,192.168.1.0/24 -> {'192.168.0.0', ..., '192.168.0.255', '192.168.1.0', ..., '192.168.1.255'}
+    ips := map[string]struct{}{}
     for _, subnet := range strings.Split(subnets, ",") {
         // Convert string to IPNet struct
         _, ipv4Net, err := net.ParseCIDR(subnet)
@@ -57,11 +56,12 @@ func get_subnet_hosts(subnets string) []string {
              // convert back to net.IP
             ip := make(net.IP, 4)
             binary.BigEndian.PutUint32(ip, i)
-            ips = append(ips, ip.String())
+            ips[ip.String()] = struct{}{}
         }
     }
     return ips
 }
+
 
 // Prevent float64 overflows by resetting all metrics at 90% of float64 max
 func prevent_overflow(stats map[string]float64) {
@@ -92,7 +92,7 @@ func main() {
         log.Fatal(http.ListenAndServe(*metricsAddress, nil))
     }()
 
-    // Convert subnets to a slice of IP addresses 192.168.0.0/24 -> ['192.168.0.0', '192.168.0.1', ..., '192.168.0.255']
+    // Convert subnets to a set of IP addresses 192.168.0.0/24 -> {'192.168.0.0', '192.168.0.1', ..., '192.168.0.255'}
     hosts_to_monitor := get_subnet_hosts(*monitor_subnets)
     excluded_hosts := get_subnet_hosts(*exclude_subnets)
 
@@ -114,17 +114,21 @@ func main() {
         src_ip := ip.SrcIP.String()
         dst_ip := ip.DstIP.String()
 
-        // Increment the bytes transmitted for the source and destination IPs
-        if slices.Contains(hosts_to_monitor, src_ip) && !slices.Contains(excluded_hosts, src_ip) {
-            transmitByteCounter.WithLabelValues(src_ip).Add(float64(ip.Length))
-            tx_stats[src_ip] += float64(ip.Length)
+        // Increment the bytes transmitted for the source and destination IPs in the monitor-subnets but only if src and dst ip are not in the exclude-subnets set
+        if _, ok := hosts_to_monitor[src_ip]; ok {
+            if _, ok := excluded_hosts[src_ip]; !ok {
+                transmitByteCounter.WithLabelValues(src_ip).Add(float64(ip.Length))
+                tx_stats[src_ip] += float64(ip.Length)
+            }
         }
-        if slices.Contains(hosts_to_monitor, dst_ip) && !slices.Contains(excluded_hosts, dst_ip) {
-            receiveByteCounter.WithLabelValues(dst_ip).Add(float64(ip.Length))
-            rx_stats[dst_ip] += float64(ip.Length)
+        if _, ok := hosts_to_monitor[dst_ip]; ok {
+            if _, ok := excluded_hosts[dst_ip]; !ok {
+                receiveByteCounter.WithLabelValues(dst_ip).Add(float64(ip.Length))
+                rx_stats[dst_ip] += float64(ip.Length)
+            }
         }
 
-        // Prevent float64 overflows; check once per hour if we're getting close
+        // Prevent float64 overflows by resetting all metrics at 90% of float64 max; check once per hour
         if time.Since(startTime) >= time.Second * 3600 {
             prevent_overflow(rx_stats)
             prevent_overflow(tx_stats)
