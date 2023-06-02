@@ -1,0 +1,41 @@
+stages:
+  - compile_go
+  - build_deb
+  - deploy
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - when: always
+
+include: 'ci_templates/build_fpm.yml'
+
+compile_go:
+  stage: compile_go
+  tags:
+    - docker
+  image: debian:stretch
+  variables:
+    GOROOT: /usr/local/go
+    GOPATH: /go
+  script:
+    - apt-get update && apt-get install -y wget gcc libpcap-dev && wget https://dl.google.com/go/go1.19.4.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.4.linux-amd64.tar.gz && rm go1.19.4.linux-amd64.tar.gz
+    - export PATH="$GOPATH/bin:$GOROOT/bin:$PATH"
+    - go build promflow.go
+  artifacts:
+    paths:
+      - promflow
+    expire_in: 1 day
+
+build_deb:
+  extends: .build_fpm
+  stage: build_deb
+  dependencies:
+    - compile_go
+  variables:
+    ARCH: x86_64
+    BINARY_FILE: promflow
+    PACKAGE_NAME: promflow
+    INSTALL_PATH: /usr/local/bin
+    EXTRA_ARGS: "--deb-pre-depends=libpcap-dev --maintainer='Ryan Tierney' --description='Prometheus network flow monitoring tool' --license=GPL3 --url=https://gitlab.com/r-tierney/promflow --deb-systemd=debian/systemd/promflow.service --deb-default=debian/default_config/promflow"

@@ -1,0 +1,7 @@
+# Promflow Network Monitor Config
+# CAREFUL - this isn't actually a shell script - systemd has it's own parser.
+# Multi-line strings MUST end with a backslash, or systemd will ignore that whole assignment
+# ARGS="--interface=eth0 \
+    --metrics-address=192.168.0.1:9088 \
+    --monitor-subnets=192.168.0.0/24 \
+    --exclude-subnets=192.168.58.0/24,192.168.59.0/24"

@@ -1,0 +1,29 @@
+.build_fpm:
+  stage: build
+  tags:
+    - docker
+  image: debian:bullseye-slim
+  variables:
+    GIT_DEPTH: 99999  # used for version number
+    VERSION: "1.0"
+    ARCH: all
+    BEFORE_BUILD: ""
+    AFTER_BUILD: ""
+    EXTRA_ARGS: ""
+  before_script:
+    - echo "JOB_ID=${CI_JOB_ID}" >> build.env
+    - apt update
+    - apt install -y zip ruby ruby-dev rubygems build-essential git
+    - gem install public_suffix -v 4.0.7
+    - gem install --no-document fpm
+  script:
+    - eval "$BEFORE_BUILD"
+    - tar -cf "${BINARY_FILE}.tar" "$BINARY_FILE"
+    - eval "fpm --input-type tar --output-type deb --name $PACKAGE_NAME --architecture $ARCH --prefix $INSTALL_PATH --version ${VERSION}-`git log --oneline | wc -l` $EXTRA_ARGS ${BINARY_FILE}.tar"
+    - eval "$AFTER_BUILD"
+  artifacts:
+    reports:
+      dotenv: build.env
+    paths:
+      - ./*.deb
+    expire_in: 1 day

@@ -1,0 +1,12 @@
+[Unit]
+Description=promflow, a prometheus exporter for per IP network flows
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/promflow
+ExecStart=/usr/local/bin/promflow $ARGS
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
